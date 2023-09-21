@@ -566,12 +566,12 @@
      wkfepz  = 0.d0
      wkfeppz = 0.d0
 !
-     call grad6d_5th(ncx_mpi,ncy_mpi,ncz_mpi,nuex,nuey,nuez, &
-                     f_total(ncfe),wkfepx,wkfepy,wkfepz, &
-                     wkfeppx,wkfeppy,wkfeppz,dx,dy,dz,ixp,iyp,izp)
-!     call grad6d_WENO(ncx_mpi,ncy_mpi,ncz_mpi,nuex,nuey,nuez, &
+!     call grad6d_5th(ncx_mpi,ncy_mpi,ncz_mpi,nuex,nuey,nuez, &
 !                     f_total(ncfe),wkfepx,wkfepy,wkfepz, &
 !                     wkfeppx,wkfeppy,wkfeppz,dx,dy,dz,ixp,iyp,izp)
+     call grad6d_WENO(ncx_mpi,ncy_mpi,ncz_mpi,nuex,nuey,nuez, &
+                     f_total(ncfe),wkfepx,wkfepy,wkfepz, &
+                     wkfeppx,wkfeppy,wkfeppz,dx,dy,dz,ixp,iyp,izp)
 !
 !$OMP parallel do private(ii,ijk,ijku,tempA,tempB,tempC,tempD) 
      do 112 k = 1, ncz_mpi
@@ -603,7 +603,7 @@
 !  Obtain dfe/duex
 !-------------------------------------------------------------------------------
 !$OMP parallel private(ijk,iis,iie,ii,ijku,iEx,iEy,iEz) &
-!$OMP          private(tempA,tempB,tempC,tempD,wkfex,wkfey,wkfez)
+!$OMP          private(tempA,tempB,tempC,tempD,du,wkfex,wkfey,wkfez)
      allocate (wkfex(nuexyz),wkfey(nuexyz),wkfez(nuexyz))
 !$OMP do 
      do k = 1, ncz_mpi
@@ -622,8 +622,8 @@
        wkfey = 0.d0
        wkfez = 0.d0
 !
-       call gradu(f_total(iis:iie),wkfex,wkfey,wkfez,Buex,Cuex,huex, &
-                  Buey,Cuey,huey,Buez,Cuez,huez,nuex,nuey,nuez)
+       !call gradu(f_total(iis:iie),wkfex,wkfey,wkfez,Buex,Cuex,huex, &
+       !           Buey,Cuey,huey,Buez,Cuez,huez,nuex,nuey,nuez)
        call gradux_WENO5(f_total(iis:iie),wkfex,du,nuex,nuey,nuez,-1.d0*f_total(iEx))
        !call FP_ux_CS(f_total(iis:iie),wkfey,Buex,Cuex,huex,nuex,nuey,nuez,vex)
        !call FP_ux_CWENO(f_total(iis:iie),wkfey,du,nuex,nuey,nuez,vex)
@@ -658,19 +658,19 @@
 !-------------------------------------------------------------------------------
 !  obtain current for electron
 !
-     call current(ncx_mpi,ncy_mpi,ncz_mpi,nuex,nuey,nuez,f_total(ncfe),vex,vey,vez, &
-                  Buex,Cuex,huex,Buey,Cuey,huey,Buez,Cuez,huez,wkJex,wkJey,wkJez)
+!     call current(ncx_mpi,ncy_mpi,ncz_mpi,nuex,nuey,nuez,f_total(ncfe),vex,vey,vez, &
+!                  Buex,Cuex,huex,Buey,Cuey,huey,Buez,Cuez,huez,wkJex,wkJey,wkJez)
 !-------------------------------------------------------------------------------
-     avJx0 = 0.d0
-     do ii = 1, ncxyz_mpi      
-       avJx0 = avJx0 + wkJex(ii)
-     enddo
-     avJx0_global = 0.d0
-     if (MyID .eq. 0) then
-          avJx0 = avJx0 - wkJex(1)
-     endif
-     call MPI_ALLREDUCE(avJx0,avJx0_global,1,MPI_REAL8,MPI_SUM,MPI_WORLD,IERR)
-     avJx0_global = avJx0_global/(ncx-1)
+!     avJx0 = 0.d0
+!     do ii = 1, ncxyz_mpi      
+!       avJx0 = avJx0 + wkJex(ii)
+!     enddo
+!     avJx0_global = 0.d0
+!     if (MyID .eq. 0) then
+!          avJx0 = avJx0 - wkJex(1)
+!     endif
+!     call MPI_ALLREDUCE(avJx0,avJx0_global,1,MPI_REAL8,MPI_SUM,MPI_WORLD,IERR)
+!     avJx0_global = avJx0_global/(ncx-1)
 !  obtain current for ion
 !
 !     call current(ncx_mpi,ncy_mpi,ncz_mpi,nuix,nuiy,nuiz,f_total(ncfi),vix,viy,viz, &
@@ -685,9 +685,7 @@
        iEy  = ii-1+ncEy
        iEz  = ii-1+ncEz
 !
-       func_total(iEx) = sumABC(-wkJix(ii),wkJex(ii),-avJx0_global)
-       func_total(iEy) = sumABC(-wkJiy(ii),wkJey(ii),+wkJy0(ii))
-       func_total(iEz) = sumABC(-wkJiz(ii),wkJez(ii),+wkJz0(ii))     
+       func_total(iEx) = sumAB(-wkJix(ii),wkJex(ii))
      enddo
 !$OMP end parallel do
 !-------------------------------------------------------------------------------

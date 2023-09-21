@@ -1,16 +1,104 @@
 !===============================================================================
 !===============================================================================
+   
+   subroutine write_data(filename,wdata,dset_name,arraysize,judge)
+    use wtime
+    use MPI3D
+    use comm_global
+    use Vlasov
+    use bcstrecv
+    use hdf5
+    character(len=*):: dset_name,filename
+    dimension :: wdata(1)
+    integer,intent(in) :: arraysize,judge
+    integer :: error,comm,info,ipp,irr
+    integer(HSIZE_T) :: data_dim(1),counter(1)
+    integer(HSSIZE_T) :: offset(1)
+    integer(HID_T) :: file_id,filespace,dset_id,memspace,plist_id
+    data_dim(1) = arraysize
+    comm = MPI_COMM_WORLD
+    info = MPI_INFO_NULL
+    mpi_size = NP
+    mpi_rank = MyID
+    call h5open_f(error)
+    CALL h5pcreate_f(H5P_FILE_ACCESS_F, plist_id, error)
+    CALL h5pset_fapl_mpio_f(plist_id, comm, info, error)
+    !call h5fcreate_f(filename,H5F_ACC_TRUNC_F,file_id,error, access_prp = plist_id)
+    call h5fopen_f(filename,H5F_ACC_RDWR_F,file_id,error, access_prp = plist_id)
+    CALL h5pclose_f(plist_id, error)
+    call h5screate_simple_f(1,data_dim,filespace,error)
+    call h5dcreate_f(file_id,dset_name,H5T_NATIVE_DOUBLE,filespace,dset_id,error)
+    call h5sclose_f(filespace,error)
+    ipp = ncxyz/mpi_size
+    irr = ncxyz - ipp*mpi_size
+    if(mpi_rank<irr) then
+        counter(1) = (ipp+1)*(arraysize/ncxyz)
+        offset(1) = (mpi_rank)*(ipp+1)*(arraysize/ncxyz)
+    else
+        counter(1) = (ipp)*(arraysize/ncxyz)
+        offset(1) = (irr*(ipp+1)+(mpi_rank-irr)*ipp)*(arraysize/ncxyz)
+    endif
+    CALL h5screate_simple_f(1, counter, memspace, error)
+    CALL h5dget_space_f(dset_id, filespace, error)
+    CALL h5sselect_hyperslab_f (filespace, H5S_SELECT_SET_F, offset, counter, error)
+    CALL h5pcreate_f(H5P_DATASET_XFER_F, plist_id, error) 
+    CALL h5pset_dxpl_mpio_f(plist_id, H5FD_MPIO_COLLECTIVE_F, error)
+    call h5dwrite_f(dset_id,H5T_NATIVE_DOUBLE,wdata,data_dim,error, &
+                    file_space_id = filespace, mem_space_id = memspace, xfer_prp = plist_id)
+    CALL h5sclose_f(filespace, error)
+    CALL h5sclose_f(memspace, error)
+    call h5dclose_f(dset_id,error)
+    CALL h5pclose_f(plist_id, error)
+    call h5fclose_f(file_id,error)
+    call h5close_f(error)
+   end subroutine write_data
+
+   subroutine write_axis_data(filename,wdata,dset_name,arraysize)
+    use wtime
+    use MPI3D
+    use comm_global
+    use Vlasov
+    use bcstrecv
+    use hdf5
+    character(len=*):: dset_name,filename
+    dimension :: wdata(1)
+    integer,intent(in):: arraysize
+    integer :: error
+    integer(HSIZE_T) :: data_dim(1), counter(1)
+    integer(HSSIZE_T) :: offset(1)
+    integer(HID_T) :: file_id,filespace,dset_id
+    data_dim(1)=arraysize
+    call h5open_f(error)
+    call h5fcreate_f(filename,H5F_ACC_TRUNC_F,file_id,error)
+    call h5screate_simple_f(1,data_dim,filespace,error)
+    call h5dcreate_f(file_id,dset_name,H5T_NATIVE_DOUBLE,filespace,dset_id,error)
+    call h5dwrite_f(dset_id,H5T_NATIVE_DOUBLE,wdata,data_dim,error)
+    CALL h5sclose_f(filespace, error)
+    call h5dclose_f(dset_id,error)
+    call h5fclose_f(file_id,error)
+    call h5close_f(error)
+   end subroutine write_axis_data
+
+
+
+
+
+
+
+
    subroutine combine_Vlasov
      use wtime
      use MPI3D
      use comm_global
      use Vlasov
      use bcstrecv
+     use hdf5
      implicit double precision (A-H,O-Z)
 !     character*15 :: filenamed 
-     character*22 :: filenamed
+     character*21 :: filenamed
      character*10 :: At
-     filenamed = './data/d          .bin'
+     real*8, allocatable, dimension(:) :: work
+     filenamed = './data/d          .h5'
      write (At,'(i10.10)') it
      filenamed(9:18) = At
 !     filenamed(2:11) = At
@@ -20,11 +108,11 @@
      if (MyID == 0) then
        if (it .eq. 0) then
          open (13,file='file_list_d.txt',status='unknown')
-         write (13,120) filenamed(8:22)
+         write (13,120) filenamed(8:21)
          close (13)
        else
          open (13,file='file_list_d.txt',status='unknown',position='append')
-         write (13,120) filenamed(8:22)
+         write (13,120) filenamed(8:21)
          close (13)
        endif
      endif
@@ -33,84 +121,69 @@
 !  brocast the data to the node 0, and output data.
 !-------------------------------------------------------------------------------
      if (MyID == 0) then
-       open (1,file=filenamed,status='unknown',form='unformatted')
-       write (1) ncx, ncy, ncz, nuex, nuey, nuez, nuix, nuiy, nuiz, ami, C, t, it, dt
+        allocate(work(14))
+        work(1) = ncx
+        work(2) = ncy
+        work(3) = ncz
+        work(4) = nuex
+        work(5) = nuey
+        work(6) = nuez
+        work(7) = nuix
+        work(8) = nuiy
+        work(9) = nuiz
+        work(10)= ami
+        work(11)=C
+        work(12)=t
+        work(13)=it
+        work(14)=dt 
+        call write_axis_data(filenamed,work,"axis",14)
+        deallocate(work)
      endif
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
 !-------------------------------------------------------------------------------
 !  brocast fe to the node 0, and output data.
-! 
-     if (MyID == 0) then
-       allocate (fe_global(ncxyz*nuexyz))
-     else
-       allocate (fe_global(1))
-     endif
-!     
-     call combine_data_6D(f(ncfe),fe_global,nuex,nuey,nuez)
-     if (MyID == 0) write (1) fe_global
+     call write_data(filenamed,f(ncfe:ncfe_end),"fe",ncxyz*nuexyz,2)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
-     deallocate (fe_global)
 !-------------------------------------------------------------------------------
-!  brocast fi to the node 0, and output data.
-! 
-     if (MyID == 0) then
-       allocate (fi_global(ncxyz*nuixyz))
-     else
-       allocate (fi_global(1))
-     endif
-!     
-     call combine_data_6D(f(ncfi),fi_global,nuix,nuiy,nuiz)
-     if (MyID == 0) write (1) fi_global
+!  brocast fi to the node 0, and output data.   
+     call write_data(filenamed,f(ncfi:ncfi_end),"fi",ncxyz*nuixyz,0)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
-     deallocate (fi_global)
 !-------------------------------------------------------------------------------
 !  brocast Bx, By, Bz, Ex, Ey, Ez to the node 0
-!
-     if (MyID == 0) then
-       allocate (A_global(ncxyz))
-     else
-       allocate (A_global(1))
-     endif
-!
-     call combine_data(f(ncBx),A_global)
-     if (MyID == 0) write (1) A_global    ! write Bx
+
+     call write_data(filenamed,f(ncBx:ncBx_end),"Bx",ncxyz,0)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
 !
-     call combine_data(f(ncBy),A_global)
-     if (MyID == 0) write (1) A_global    ! write By
+     call write_data(filenamed,f(ncBy:ncBy_end),"By",ncxyz,0)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
 !
-     call combine_data(f(ncBz),A_global)
-     if (MyID == 0) write (1) A_global    ! write Bz
+     call write_data(filenamed,f(ncBz:ncBz_end),"Bz",ncxyz,0)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
 !
-     call combine_data(f(ncEx),A_global)
-     if (MyID == 0) write (1) A_global    ! write Ex
+     call write_data(filenamed,f(ncEx:ncEx_end),"Ex",ncxyz,0)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
 !
-     call combine_data(f(ncEy),A_global)
-     if (MyID == 0) write (1) A_global    ! write Ey
+     call write_data(filenamed,f(ncEy:ncEy_end),"Ey",ncxyz,0)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
 !
-     call combine_data(f(ncEz),A_global)
-     if (MyID == 0) write (1) A_global    ! write Ez
+     call write_data(filenamed,f(ncEz:ncEz_end),"Ez",ncxyz,1)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
-     deallocate (A_global)
-     close (1)
 !-------------------------------------------------------------------------------
    end subroutine combine_Vlasov
-!===============================================================================
+
    subroutine combine_fluid
      use wtime
      use MPI3D
      use comm_global
      use Vlasov
      use bcstrecv
+     use hdf5
      implicit double precision (A-H,O-Z)
 !     character*15 :: filenamef 
-     character*22 :: filenamef
+     character*21 :: filenamef
      character*10 :: At
-     filenamef = './data/f          .bin'
+     real*8, allocatable, dimension(:) :: work
+     filenamef = './data/f          .h5'
      write (At,'(i10.10)') it
 !     filenamef(2:11) = At
 	 filenamef(9:18) = At
@@ -120,19 +193,34 @@
      if (MyID == 0) then
        if (it .eq. 0) then
          open (12,file='file_list_f.txt',status='unknown')
-         write (12,120) filenamef(8:22)
+         write (12,120) filenamef(8:21)
          close (12)
        else
          open (12,file='file_list_f.txt',status='unknown',position='append')
-         write (12,120) filenamef(8:22)
+         write (12,120) filenamef(8:21)
          close (12)
        endif
      endif
  120 format (a15)
 !-------------------------------------------------------------------------------
      if (MyID == 0) then
-       open (2,file=filenamef,status='unknown',form='unformatted')
-       write (2) ncx, ncy, ncz, ami, C, t, it, dt
+        allocate(work(14))
+        work(1) = ncx
+        work(2) = ncy
+        work(3) = ncz
+        work(4) = nuex
+        work(5) = nuey
+        work(6) = nuez
+        work(7) = nuix
+        work(8) = nuiy
+        work(9) = nuiz
+        work(10)= ami
+        work(11)=C
+        work(12)=t
+        work(13)=it
+        work(14)=dt 
+        call write_axis_data(filenamef,work,"axis",14)
+        deallocate(work)
      endif
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
 !-------------------------------------------------------------------------------
@@ -141,115 +229,57 @@
 !
 !  output fuex(nuex,ncx,ncy,ncz) data
 !
-     if (MyID == 0) then
-       allocate (fuex_global(ncxyz*nuex))
-     else
-       allocate (fuex_global(1))
-     endif
-!     
-     call combine_data_6D(fuex,fuex_global,nuex,1,1)
-     if (MyID == 0) write (2) fuex_global
+     call write_data(filenamef,fuex,"fuex",ncxyz*nuex,2)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
-     deallocate (fuex_global)
 !
 !  output fuey(nuey,ncx,ncy,ncz) data
 !
-     if (MyID == 0) then
-       allocate (fuey_global(ncxyz*nuey))
-     else
-       allocate (fuey_global(1))
-     endif
-!     
-     call combine_data_6D(fuey,fuey_global,1,nuey,1)
-     if (MyID == 0) write (2) fuey_global
+     call write_data(filenamef,fuey,"fuey",ncxyz*nuey,0)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
-     deallocate (fuey_global)
 !
 !  output fuez(nuez,ncx,ncy,ncz) data
 !
-     if (MyID == 0) then
-       allocate (fuez_global(ncxyz*nuez))
-     else
-       allocate (fuez_global(1))
-     endif
-!     
-     call combine_data_6D(fuez,fuez_global,1,1,nuez)
-     if (MyID == 0) write (2) fuez_global
+     call write_data(filenamef,fuez,"fuez",ncxyz*nuez,0)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
-     deallocate (fuez_global)
 !-------------------------------------------------------------------------------
      call get_distribution_1D(ncx_mpi,ncy_mpi,ncz_mpi,nuix,nuiy,nuiz,f(ncfi), &
                               Buix,Cuix,huix,Buiy,Cuiy,huiy,Buiz,Cuiz,huiz,fuix,fuiy,fuiz) 
-!
+     call MPI_Barrier(MPI_COMM_WORLD,ierr)
 !  output fuix(nuix,ncx,ncy,ncz) data
 !
-     if (MyID == 0) then
-       allocate (fuix_global(ncxyz*nuix))
-     else
-       allocate (fuix_global(1))
-     endif
-!     
-     call combine_data_6D(fuix,fuix_global,nuix,1,1)
-     if (MyID == 0) write (2) fuix_global
+     call write_data(filenamef,fuix,"fuix",ncxyz*nuix,0)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
-     deallocate (fuix_global)
 !
 !  output fuiy(nuiy,ncx,ncy,ncz) data
 !
-     if (MyID == 0) then
-       allocate (fuiy_global(ncxyz*nuiy))
-     else
-       allocate (fuiy_global(1))
-     endif
-!     
-     call combine_data_6D(fuiy,fuiy_global,1,nuiy,1)
-     if (MyID == 0) write (2) fuiy_global
+     call write_data(filenamef,fuiy,"fuiy",ncxyz*nuiy,0)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
-     deallocate (fuiy_global)
 !
 !  output fuiz(nuiz,ncx,ncy,ncz) data
 !
-     if (MyID == 0) then
-       allocate (fuiz_global(ncxyz*nuiz))
-     else
-       allocate (fuiz_global(1))
-     endif
-!     
-     call combine_data_6D(fuiz,fuiz_global,1,1,nuiz)
-     if (MyID == 0) write (2) fuiz_global
+     call write_data(filenamef,fuiz,"fuiz",ncxyz*nuiz,0)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
-     deallocate (fuiz_global)
 !-------------------------------------------------------------------------------
 !  brocast Bx, By, Bz, Ex, Ey, Ez to the node 0
 !
-     if (MyID == 0) then
-       allocate (A_global(ncxyz))
-     else
-       allocate (A_global(1))
-     endif
+
 !
-     call combine_data(f(ncBx),A_global)
-     if (MyID == 0) write (2) A_global    ! write Bx
+     call write_data(filenamef,f(ncBx:ncBx_end),"Bx",ncxyz,0)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
 !
-     call combine_data(f(ncBy),A_global)
-     if (MyID == 0) write (2) A_global    ! write By
+     call write_data(filenamef,f(ncBy:ncBy_end),"By",ncxyz,0)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
 !
-     call combine_data(f(ncBz),A_global)
-     if (MyID == 0) write (2) A_global    ! write Bz
+     call write_data(filenamef,f(ncBz:ncBz_end),"Bz",ncxyz,0)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
 !
-     call combine_data(f(ncEx),A_global)
-     if (MyID == 0) write (2) A_global    ! write Ex
+     call write_data(filenamef,f(ncEx:ncEx_end),"Ex",ncxyz,0)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
 !
-     call combine_data(f(ncEy),A_global)
-     if (MyID == 0) write (2) A_global    ! write Ey
+     call write_data(filenamef,f(ncEy:ncEy_end),"Ey",ncxyz,0)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
 !
-     call combine_data(f(ncEz),A_global)
-     if (MyID == 0) write (2) A_global    ! write Ez
+     call write_data(filenamef,f(ncEz:ncEz_end),"Ez",ncxyz,0)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
 !-------------------------------------------------------------------------------
 !  brocast Rho, Vx, Vy, Vz and P to the node 0
@@ -257,63 +287,47 @@
      call get_fluid
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
 !
-     call combine_data(Rhoe,A_global)
-     if (MyID == 0) write (2) A_global  ! write Rhoe
+     call write_data(filenamef,Rhoe,"Rhoe",ncxyz,0)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
 !
-     call combine_data(Rhoi,A_global)
-     if (MyID == 0) write (2) A_global  ! write Rhoi
+     call write_data(filenamef,Rhoi,"Rhoi",ncxyz,0)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
 !
-     call combine_data(avgvex,A_global)
-     if (MyID == 0) write (2) A_global  ! write avgvex
+     call write_data(filenamef,avgvex,"Vex",ncxyz,0)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
 !
-     call combine_data(avgvey,A_global)
-     if (MyID == 0) write (2) A_global  ! write avgvey
+     call write_data(filenamef,avgvey,"Vey",ncxyz,0)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
 !
-     call combine_data(avgvez,A_global)
-     if (MyID == 0) write (2) A_global  ! write avgvez
+     call write_data(filenamef,avgvez,"Vez",ncxyz,0)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
 !
-     call combine_data(avgvix,A_global)
-     if (MyID == 0) write (2) A_global  ! write avgvix
+     call write_data(filenamef,avgvix,"Vix",ncxyz,0)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
 !
-     call combine_data(avgviy,A_global)
-     if (MyID == 0) write (2) A_global  ! write avgviy
+     call write_data(filenamef,avgviy,"Viy",ncxyz,0)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
 !
-     call combine_data(avgviz,A_global)
-     if (MyID == 0) write (2) A_global  ! write avgviz
+     call write_data(filenamef,avgviz,"Viz",ncxyz,0)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
 !
-     call combine_data(Pex,A_global)
-     if (MyID == 0) write (2) A_global  ! write Pex
+     call write_data(filenamef,Pex,"Pex",ncxyz,0)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
 !
-     call combine_data(Pey,A_global)
-     if (MyID == 0) write (2) A_global  ! write Pey
+     call write_data(filenamef,Pey,"Pey",ncxyz,0)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
 !
-     call combine_data(Pez,A_global)
-     if (MyID == 0) write (2) A_global  ! write Pez
+     call write_data(filenamef,Pez,"Pez",ncxyz,0)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
 !
-     call combine_data(Pix,A_global)
-     if (MyID == 0) write (2) A_global  ! write Pix
+     call write_data(filenamef,Pix,"Pix",ncxyz,0)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
 !
-     call combine_data(Piy,A_global)
-     if (MyID == 0) write (2) A_global  ! write Piy
+     call write_data(filenamef,Piy,"Piy",ncxyz,0)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
 !
-     call combine_data(Piz,A_global)
-     if (MyID == 0) write (2) A_global  ! write Piz
+     call write_data(filenamef,Piz,"Piz",ncxyz,1)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
 !
-     deallocate (A_global)
-     close (2)
    end subroutine combine_fluid
 !===============================================================================

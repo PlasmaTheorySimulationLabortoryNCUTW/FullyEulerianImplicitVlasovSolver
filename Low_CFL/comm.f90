@@ -139,6 +139,42 @@ module comm_global
 !-------------------------------------------------------------------------------
    contains
 !===============================================================================
+
+   subroutine hdf5_read_init_para
+       use hdf5
+       IMPLICIT NONE
+       CHARACTER(LEN=7), PARAMETER :: filename = "init.h5"
+       CHARACTER(LEN=4), PARAMETER :: dsetname = "axis"
+       INTEGER(HID_T) :: file_id
+       INTEGER(HID_T) :: dset_id
+       INTEGER(HSIZE_T), DIMENSION(1) :: data_dims
+       INTEGER     ::   error
+       real*8, allocatable, dimension(:) :: data_out
+       data_dims(1) = 14
+       allocate(data_out(data_dims(1)))
+       CALL h5open_f(error)
+       CALL h5fopen_f (filename, H5F_ACC_RDWR_F, file_id, error)
+       CALL h5dopen_f(file_id, dsetname, dset_id, error)
+       CALL h5dread_f(dset_id, H5T_NATIVE_DOUBLE, data_out, data_dims, error)
+       CALL h5dclose_f(dset_id, error)
+       CALL h5fclose_f(file_id, error)
+       CALL h5close_f(error)
+       ncx  = data_out(1)
+       ncy  = data_out(2)
+       ncz  = data_out(3)
+       nuex = data_out(4)
+       nuey = data_out(5)
+       nuez = data_out(6)
+       nuix = data_out(7)
+       nuiy = data_out(8)
+       nuiz = data_out(9)
+       ami  = data_out(10)
+       C    = data_out(11)
+       deallocate(data_out)
+   end subroutine hdf5_read_init_para
+
+
+
    subroutine get_para
      implicit double precision (A-H,O-Z)
 !
@@ -190,12 +226,10 @@ module comm_global
 !
 !  read the mesh number along the x-, y-, z- axis, mass ratio, and light speed 
 !
-     open (2,file='init.bin',status='old',form='unformatted')
-     read (2) ncx, ncy, ncz, nuex, nuey, nuez, nuix, nuiy, nuiz, ami, C
-     close (2)
-     open (3,file='gauss.bin',status='old',form='unformatted')
-     read (3) v_b
-     close (3)
+    call hdf5_read_init_para
+     !open (2,file='init.bin',status='old',form='unformatted')
+     !read (2) ncx, ncy, ncz, nuex, nuey, nuez, nuix, nuiy, nuiz, ami, C
+     !close (2)
    end subroutine get_para
 !===============================================================================     
 end module comm_global

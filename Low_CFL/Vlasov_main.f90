@@ -24,12 +24,6 @@ module main_loop
      itout_s = it+it_plot_s
 !
      call PCDE4th0(funcfp,f,func,func1,func2,func3,wkf1,wkf2,t,dt,ntot)
-     !call smooth_operator(f)
-     !call smooth_operator(func)
-     !call smooth_operator(func1)
-     !call smooth_operator(func2)
-     !call smooth_operator(func3)
-     !print *, v_b
 !
      it = it+3
      t = dfloat(it)*dt
@@ -39,17 +33,10 @@ module main_loop
      if (MyID == 0) ttt1 = MPI_Wtime()
 !
      do while (it < it_stop)
-!
-       !if(it == itout_s) then
-          !call smooth_operator(f)
-          !call PCDE4th0(funcfp,f,func,func1,func2,func3,wkf1,wkf2,t,dt,ntot)
-          !it = it + 3
-          !itout_s = itout_s+it_plot_s
-       !else
           call PCDE4th1(funcfp,f,func,func1,func2,func3,wkf1,wkf2,t,dt,ntot)
           it = it+1
        !endif
-       call check_Vlasov
+       !call check_Vlasov
 !
        t = dfloat(it)*dt
        if (MyID == 0) print *, 'time =', t      
@@ -253,69 +240,3 @@ subroutine check_Vlasov
    endif    	 
 !-------------------------------------------------------------------------------
 end subroutine check_Vlasov
-!===============================================================================
-!function Gaussian(u,V,Vth)     
-!  pi     = 4*datan(1.d0)
-!  s2pi   = dsqrt(2.d0*pi)
-  !print *, 'pi is',pi
-  !print *, 'v_th',Vth
-!  Gaussian = dexp(-(u-V)**2/(2*Vth**2))/Vth/s2pi
-!end function Gaussian
-!===============================================================================
-subroutine smooth_operator(f_t)
-   use coef
-   use wtime
-   use MPI3D
-   use comm_global
-   use Vlasov
-   use GRID6D
-   use vector3D
-   use Vlasov2fluid
-   use CubicSpline   
-   implicit double precision (A-H,O-Z)
-   dimension :: f_t(1)
-   real*8, allocatable, dimension(:) :: f_tt
-   N = ncx_mpi*nuex
-  
-  pi     = 4*datan(1.d0)
-  s2pi   = dsqrt(2.d0*pi)
-   !print *, N
-   !print *, 'v_b is ',v_b
-   allocate(f_tt(N))
-   f_tt = 0.d0
-   do 10 i = 1,N
-      f_tt(i) = f_t(i)
-   10 continue
-   !print *, 'ncx_mpi is',ncx_mpi
-   !print *, 'nuex is ', nuex
-   do 11 k = 1, ncz_mpi
-   do 11 j = 1, ncy_mpi
-   do 11 i = 1, ncx_mpi
-     ijk  = i+(j-1)*ncx_mpi+(k-1)*ncx_mpi*ncy_mpi
-     nuexy = nuex*nuey
-     nuexyz = nuex*nuey*nuez
-     do 12 ku = 1, nuez
-     do 12 ju = 1, nuey
-     do 12 iu = 1, nuex
-       ijku  = iu+(ju-1)*nuex+(ku-1)*nuexy
-       ii    = ijku+nuexyz*(ijk-1)  
-       temp = 0.d0
-       temp2 = 0.d0
-       du = uex(2)-uex(1)
-       do 13 iuu = 1,nuex
-         ijkuu = iuu+(ju-1)*nuex+(ku-1)*nuexy
-         iii   = ijkuu+nuexyz*(ijk-1)
-         G = dexp(-(uex(iu)-uex(iuu))**2/(2*v_b**2))/v_b/s2pi
-         temp2 = temp2 + G*du
-         !print *, 'G    is ',G
-         temp = temp + f_tt(iii)*G*du
-         !print*, 'temp is ',temp
-       13 continue
-       f_t(ii) = temp/temp2
-       !print*,'temp is',temp
-	12 continue
-	11 continue
-   !print *, 'f_tt is',f_tt(10)
-   !print *, 'f_t is ', f_t(10)
-    deallocate(f_tt)
-end subroutine smooth_operator

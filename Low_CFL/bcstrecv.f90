@@ -22,7 +22,7 @@ module bcstrecv
 !
 !  read the data from the init.bin
 !
-     if (MyID == 0) call get_init_data(Istop)
+     if (MyID == 0) call get_init_data_hdf5
      call MPI_bcast(t ,1,MPI_real8,0,MPI_COMM_WORLD,IERR)
      call MPI_bcast(it,1,MPI_integer,0,MPI_COMM_WORLD,IERR)
      call MPI_bcast(dt,1,MPI_real8,0,MPI_COMM_WORLD,IERR)
@@ -45,10 +45,6 @@ module bcstrecv
 !-------------------------------------------------------------------------------
 !  read and brocast the 6-D electron distribution data to the other node
 !
-     if (MyID == 0) then
-       open (1,file='init.bin',status='old',form='unformatted')
-       read (1) mx, my, mz, muex, muey, muez, muix, muiy, muiz, ami1, C1, t1, it1, dt1
-     endif
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
 !
      if (MyID == 0) then
@@ -57,7 +53,7 @@ module bcstrecv
        allocate (fe_global(1))
      endif
 !
-     if (MyID == 0) read (1) fe_global
+     if (MyID == 0) call read_init_array("fe",ncxyz*nuexyz,fe_global)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
      call data_decomposition_6D(fe_global,f(ncfe),nuex,nuey,nuez)
      deallocate (fe_global)    
@@ -70,7 +66,7 @@ module bcstrecv
        allocate (fi_global(1))
      endif
 !
-     if (MyID == 0) read (1) fi_global
+     if (MyID == 0) call read_init_array("fi",ncxyz*nuixyz,fi_global)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
      call data_decomposition_6D(fi_global,f(ncfi),nuix,nuiy,nuiz)
      deallocate (fi_global)
@@ -83,46 +79,46 @@ module bcstrecv
        allocate (A_global(1))
      endif
 !
-     if (MyID == 0) read (1) A_global           ! read Bx
+     if (MyID == 0) call read_init_array("Bx",ncxyz,A_global)   ! read Bx
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
      call data_decomposition(A_global,f(ncBx))
 !
-     if (MyID == 0) read (1) A_global           ! read By
+     if (MyID == 0) call read_init_array("By",ncxyz,A_global)   ! read By
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
      call data_decomposition(A_global,f(ncBy))
 !
-     if (MyID == 0) read (1) A_global           ! read Bz
+     if (MyID == 0) call read_init_array("Bz",ncxyz,A_global)   ! read Bz
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
      call data_decomposition(A_global,f(ncBz))
 !
-     if (MyID == 0) read (1) A_global           ! read Ex
+     if (MyID == 0) call read_init_array("Ex",ncxyz,A_global)   ! read Ex
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
      call data_decomposition(A_global,f(ncEx))
 !
-     if (MyID == 0) read (1) A_global           ! read Ey
+     if (MyID == 0) call read_init_array("Ey",ncxyz,A_global)   ! read Ey
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
      call data_decomposition(A_global,f(ncEy))
 !
-     if (MyID == 0) read (1) A_global           ! read Ez
+     if (MyID == 0) call read_init_array("Ez",ncxyz,A_global)   ! read Ez
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
      call data_decomposition(A_global,f(ncEz))
-     close (1)
+
 !-------------------------------------------------------------------------------
 !  read and brocast the etaB, etafe, etafi data to the other node
 !
-     open (2,file='eta.bin',status='unknown',form='unformatted')
-     if (MyID == 0) read (2) A_global
+
+     if (MyID == 0) call read_eta_array("etaBB",ncxyz,A_global)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
      call data_decomposition(A_global,etaB)
 ! 
-     if (MyID == 0) read (2) A_global
+     if (MyID == 0) call read_eta_array("etafe",ncxyz,A_global)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
      call data_decomposition(A_global,etafe)
 !
-     if (MyID == 0) read (2) A_global
+     if (MyID == 0) call read_eta_array("etafi",ncxyz,A_global)
      call MPI_Barrier(MPI_COMM_WORLD,ierr)
      call data_decomposition(A_global,etafi)
-     close (2)
+
      deallocate (A_global)
 !-------------------------------------------------------------------------------
      call alloc_3D3V
@@ -178,6 +174,149 @@ module bcstrecv
 !  read the data from the file 'init.bin'
 !  the file 'init.bin' is written in fortran binary format
 !
+
+   subroutine read_init_array(dsetname,size,data_out)
+       use hdf5
+       IMPLICIT NONE
+       integer,intent(in) :: size
+       character(len=*):: dsetname
+       CHARACTER(LEN=7), PARAMETER :: filename = "init.h5"
+       INTEGER(HID_T) :: file_id
+       INTEGER(HID_T) :: dset_id
+       INTEGER(HSIZE_T), DIMENSION(1) :: data_dims
+       INTEGER     ::   error
+       real*8,intent(inout),dimension(size) :: data_out
+       data_dims(1) = size
+       CALL h5open_f(error)
+       CALL h5fopen_f (filename, H5F_ACC_RDWR_F, file_id, error)
+       CALL h5dopen_f(file_id, dsetname, dset_id, error)
+       CALL h5dread_f(dset_id, H5T_NATIVE_DOUBLE, data_out, data_dims, error)
+       CALL h5dclose_f(dset_id, error)
+       CALL h5fclose_f(file_id, error)
+       CALL h5close_f(error)
+   end subroutine read_init_array
+   subroutine read_eta_array(dsetname,size,data_out)
+       use hdf5
+       IMPLICIT NONE
+       integer,intent(in) :: size
+       CHARACTER(LEN=6), PARAMETER :: filename = "eta.h5"
+       character(len=*):: dsetname
+       INTEGER(HID_T) :: file_id
+       INTEGER(HID_T) :: dset_id
+       INTEGER(HSIZE_T), DIMENSION(1) :: data_dims
+       INTEGER     ::   error
+       real*8,intent(inout),dimension(size) :: data_out
+       data_dims(1) = size
+       CALL h5open_f(error)
+       CALL h5fopen_f (filename, H5F_ACC_RDWR_F, file_id, error)
+       CALL h5dopen_f(file_id, dsetname, dset_id, error)
+       CALL h5dread_f(dset_id, H5T_NATIVE_DOUBLE, data_out, data_dims, error)
+       CALL h5dclose_f(dset_id, error)
+       CALL h5fclose_f(file_id, error)
+       CALL h5close_f(error)
+   end subroutine read_eta_array
+
+   subroutine get_init_data_hdf5
+       use hdf5
+       IMPLICIT NONE
+       CHARACTER(LEN=7), PARAMETER :: filename = "axis.h5"
+       INTEGER(HID_T) :: file_id
+       INTEGER(HID_T) :: dset_id
+       INTEGER(HSIZE_T), DIMENSION(1) :: data_dims
+       INTEGER     ::   error
+       real*8, allocatable, dimension(:) :: data_out
+       CALL h5open_f(error)
+       CALL h5fopen_f (filename, H5F_ACC_RDWR_F, file_id, error)
+       CALL h5dopen_f(file_id, "x", dset_id, error)
+       data_dims(1) = ncx
+       allocate(data_out(data_dims(1)))
+       CALL h5dread_f(dset_id, H5T_NATIVE_DOUBLE, data_out, data_dims, error)
+       x_global = data_out
+       deallocate(data_out)
+       CALL h5dclose_f(dset_id, error)
+       CALL h5dopen_f(file_id, "y", dset_id, error)
+       data_dims(1) = ncy
+       allocate(data_out(data_dims(1)))
+       CALL h5dread_f(dset_id, H5T_NATIVE_DOUBLE, data_out, data_dims, error)
+       y_global = data_out
+       deallocate(data_out)
+       CALL h5dclose_f(dset_id, error)
+       CALL h5dopen_f(file_id, "z", dset_id, error)
+       data_dims(1) = ncz
+       allocate(data_out(data_dims(1)))
+       CALL h5dread_f(dset_id, H5T_NATIVE_DOUBLE, data_out, data_dims, error)
+       z_global = data_out
+       deallocate(data_out)
+       CALL h5dclose_f(dset_id, error)
+       CALL h5dopen_f(file_id, "uex", dset_id, error)
+       data_dims(1) = nuex
+       allocate(data_out(data_dims(1)))
+       CALL h5dread_f(dset_id, H5T_NATIVE_DOUBLE, data_out, data_dims, error)
+       uex = data_out
+       deallocate(data_out)
+       CALL h5dclose_f(dset_id, error)
+       CALL h5dopen_f(file_id, "uey", dset_id, error)
+       data_dims(1) = nuey
+       allocate(data_out(data_dims(1)))
+       CALL h5dread_f(dset_id, H5T_NATIVE_DOUBLE, data_out, data_dims, error)
+       uey = data_out
+       deallocate(data_out)
+       CALL h5dclose_f(dset_id, error)
+       CALL h5dopen_f(file_id, "uez", dset_id, error)
+       data_dims(1) = nuez
+       allocate(data_out(data_dims(1)))
+       CALL h5dread_f(dset_id, H5T_NATIVE_DOUBLE, data_out, data_dims, error)
+       uez = data_out
+       deallocate(data_out)
+       CALL h5dclose_f(dset_id, error)
+       CALL h5dopen_f(file_id, "uix", dset_id, error)
+       data_dims(1) = nuix
+       allocate(data_out(data_dims(1)))
+       CALL h5dread_f(dset_id, H5T_NATIVE_DOUBLE, data_out, data_dims, error)
+       uix = data_out
+       deallocate(data_out)
+       CALL h5dclose_f(dset_id, error)
+       CALL h5dopen_f(file_id, "uiy", dset_id, error)
+       data_dims(1) = nuiy
+       allocate(data_out(data_dims(1)))
+       CALL h5dread_f(dset_id, H5T_NATIVE_DOUBLE, data_out, data_dims, error)
+       uiy = data_out
+       deallocate(data_out)
+       CALL h5dclose_f(dset_id, error)
+       CALL h5dopen_f(file_id, "uiz", dset_id, error)
+       data_dims(1) = nuiz
+       allocate(data_out(data_dims(1)))
+       CALL h5dread_f(dset_id, H5T_NATIVE_DOUBLE, data_out, data_dims, error)
+       uiz = data_out
+       deallocate(data_out)
+       CALL h5dclose_f(dset_id, error)
+       CALL h5fclose_f(file_id, error)
+       CALL h5close_f(error)
+       allocate(data_out(data_dims(1)))
+       CALL h5open_f(error)
+       CALL h5fopen_f ("init.h5", H5F_ACC_RDWR_F, file_id, error)
+       CALL h5dopen_f(file_id, "axis", dset_id, error)
+       CALL h5dread_f(dset_id, H5T_NATIVE_DOUBLE, data_out, data_dims, error)
+       CALL h5dclose_f(dset_id, error)
+       CALL h5fclose_f(file_id, error)
+       CALL h5close_f(error)
+       ncx  = data_out(1)
+       ncy  = data_out(2)
+       ncz  = data_out(3)
+       nuex = data_out(4)
+       nuey = data_out(5)
+       nuez = data_out(6)
+       nuix = data_out(7)
+       nuiy = data_out(8)
+       nuiz = data_out(9)
+       ami  = data_out(10)
+       C    = data_out(11)
+       t    = data_out(12)
+       it   = data_out(13)
+       dt   = data_out(14)
+       deallocate(data_out)
+   end subroutine get_init_data_hdf5
+
    subroutine get_init_data(Istop)
      implicit double precision (A-H,O-Z)
      character*10 :: dates, times, zone
@@ -431,6 +570,7 @@ module bcstrecv
 !
   99 format (1x,i4,4(a1,i2.2))
    end subroutine get_init_data
+
 !===============================================================================
    subroutine current0
      implicit double precision (A-H,O-Z)
@@ -507,7 +647,7 @@ module bcstrecv
    end subroutine get_fluid
 !===============================================================================
    subroutine data_decomposition_1D(f_recv,f_bcst,nc_mpi,i_start)
-     implicit double precision (A-H,O-Z)
+     implicit double precision (A-H,O-Z) 
      real*8, allocatable, dimension(:) :: ftemp
      dimension :: index(2), f_recv(1), f_bcst(1)
 !     
